@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Campo Elettrico</title>
+<style>
+  :root {
+    --bg: #0a0f1e;
+    --panel: rgba(17, 23, 42, 0.94);
+    --panel-2: #1c2440;
+    --line: #2c3659;
+    --text: #e9edf8;
+    --muted: #93a0c4;
+    --pos: #ff5d5d;
+    --neg: #4f9dff;
+    --probe: #ffd166;
+    --inertia: #ff9f43;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas#scena { position: fixed; inset: 0; width: 100vw; height: 100dvh; touch-action: none; display: block; }
+
+  #hint {
+    position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    max-width: calc(100vw - 24px); width: max-content;
+    padding: 7px 14px; border-radius: 999px;
+    background: rgba(17, 23, 42, 0.8); color: var(--muted);
+    font-size: 13px; text-align: center; pointer-events: none;
+    transition: opacity .3s;
+  }
+  #toast {
+    position: fixed; top: calc(max(10px, env(safe-area-inset-top)) + 44px); left: 50%;
+    transform: translateX(-50%); max-width: calc(100vw - 24px); width: max-content;
+    padding: 8px 14px; border-radius: 10px; background: #3a2a10; color: #ffd9a0;
+    font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .25s;
+  }
+  #toast.on { opacity: 1; }
+
+  #editor {
+    position: fixed; z-index: 5; display: flex; gap: 4px; align-items: center;
+    padding: 6px; border-radius: 14px;
+    background: var(--panel); border: 1px solid var(--line);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  #editor[hidden] { display: none; }
+  #editor button { min-width: 40px; min-height: 40px; padding: 0 4px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #editor button.n { color: #9cc7ff; }
+  #editor button.p { color: #ffa3a3; }
+  #editor button.on.n { background: var(--neg); color: #fff; border-color: #9cc7ff; }
+  #editor button.on.p { background: var(--pos); color: #fff; border-color: #ffb0b0; }
+  #editor .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 2px; }
+  #edDel { color: var(--muted); font-weight: 400 !important; }
+
+  #ui {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: min(640px, calc(100vw - 16px));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  .row { display: flex; gap: 6px; align-items: stretch; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 10px; cursor: pointer; min-height: 40px; white-space: nowrap;
+  }
+  button:active { transform: translateY(1px); }
+  .tools button {
+    flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 12px; color: var(--muted); padding: 6px 2px;
+  }
+  .tools button.on { background: #2b3760; color: var(--text); border-color: #5a6ea8; }
+  .ic {
+    width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    font-weight: 700; font-size: 17px; line-height: 1; color: #fff;
+  }
+  .ic.pos { background: radial-gradient(circle at 35% 35%, #ff9a9a, var(--pos) 60%, #a52a2a); }
+  .ic.neg { background: radial-gradient(circle at 35% 35%, #9ccaff, var(--neg) 60%, #1f4f9a); }
+  .ic.probe { background: transparent; }
+  .ic.probe::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--probe); box-shadow: 0 0 8px var(--probe); }
+  .ic.gomma { color: var(--muted); font-size: 16px; }
+
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex: none; }
+  .seg > span { display: grid; place-items: center; padding: 0 7px; color: var(--muted); font-size: 12px; background: var(--panel-2); }
+  .seg button { border: 0; border-radius: 0; border-left: 1px solid var(--line); min-width: 32px; padding: 6px 0; }
+  .seg button.on { background: #2b3760; color: #fff; font-weight: 700; }
+  #btnCampo {
+    flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.1;
+    background: linear-gradient(180deg, #ffd166, #f0b43c); color: #2a1d00; font-weight: 700; border-color: #c99528;
+  }
+  #btnPulisci { flex: none; padding: 8px; }
+  @media (max-width: 440px) {
+    .seg > span { display: none; }
+    .seg button:first-of-type { border-left: 0; }
+  }
+  #btnAltro { flex: none; width: 42px; padding: 0; font-size: 20px; letter-spacing: 1px; }
+
+  #sheet {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 112px);
+    width: min(440px, calc(100vw - 16px));
+    max-height: calc(100dvh - 190px); overflow: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 12px 14px 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  #sheet[hidden] { display: none; }
+  #sheet h3 { margin: 4px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  #sheet h3:not(:first-child) { margin-top: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button { font-size: 14px; padding: 6px 10px; min-height: 36px; }
+  .tog { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+  .tog input { width: 20px; height: 20px; accent-color: var(--probe); }
+  .seg.wide { width: 100%; }
+  .seg.wide button { flex: 1 1 0; white-space: normal; font-size: 14px; min-height: 40px; padding: 6px 4px; }
+  .range { display: flex; align-items: center; gap: 10px; }
+  .range input { flex: 1; accent-color: var(--probe); }
+  .range output { min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; }
+  .nota { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+  .fondo { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+  #btnTutto { color: #ffb3b3; border-color: #5a2a33; background: #2a1820; }
+  #versione { color: #5d6890; font-size: 12px; }
+</style>
+</head>
+<body>
+<canvas id="scena"></canvas>
+<div id="hint"></div>
+<div id="toast"></div>
+<div id="editor" hidden></div>
+
+<div id="sheet" hidden>
+  <h3>Esempi</h3>
+  <div class="chips" id="esempi">
+    <button data-es="dipolo">Dipolo</button>
+    <button data-es="duepos">Due positive</button>
+    <button data-es="asim">+2 e −1</button>
+    <button data-es="quadrupolo">Quadrupolo</button>
+    <button data-es="condensatore">Due file</button>
+  </div>
+
+  <h3>Carica di prova</h3>
+  <div class="seg wide" id="moto">
+    <button data-moto="linea" class="on">Segue la linea di campo</button>
+    <button data-moto="inerzia">Con inerzia</button>
+  </div>
+  <p class="nota" id="notaMoto"></p>
+
+  <h3>Mostra</h3>
+  <label class="tog">Vettori del campo <input type="checkbox" id="chkVettori"></label>
+  <label class="tog">Potenziale ed equipotenziali <input type="checkbox" id="chkPot"></label>
+
+  <h3>Linee del campo completo</h3>
+  <div class="range">
+    <span class="nota" style="margin:0">per unità di carica</span>
+    <input type="range" id="densita" min="4" max="16" step="1" value="8">
+    <output id="densitaVal">8</output>
+  </div>
+
+  <div class="fondo">
+    <button id="btnTutto">Cancella tutto</button>
+    <span id="versione"></span>
+  </div>
+</div>
+
+<div id="ui">
+  <div class="row tools" id="tools">
+    <button data-tool="pos" class="on"><span class="ic pos">+</span>Positiva</button>
+    <button data-tool="neg"><span class="ic neg">−</span>Negativa</button>
+    <button data-tool="prova"><span class="ic probe"></span>Prova</button>
+    <button data-tool="gomma"><span class="ic gomma">✕</span>Gomma</button>
+  </div>
+  <div class="row">
+    <div class="seg" id="mag"><span>|q|</span><button data-m="1" class="on">1</button><button data-m="2">2</button><button data-m="3">3</button></div>
+    <button id="btnCampo">Campo completo</button>
+    <button id="btnPulisci">Pulisci</button>
+    <button id="btnAltro" aria-label="Opzioni">⋯</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+const VERSIONE = 2;
+
+// ---------- Fisica ----------
+// E = K Σ q r̂ / r²  (unità arbitrarie, in pixel)
+const K = 1e5;
+const ALPHA = 20;          // accelerazione per unità di campo (moto con inerzia), px/s²
+const SOFT2 = 4;           // ammorbidimento per r → 0
+
+let charges = [];          // {id, x, y, q}
+let nextId = 1;
+
+function field(x, y) {
+  let ex = 0, ey = 0;
+  for (const c of charges) {
+    const dx = x - c.x, dy = y - c.y;
+    const r2 = dx * dx + dy * dy + SOFT2;
+    const f = K * c.q / (r2 * Math.sqrt(r2));
+    ex += f * dx; ey += f * dy;
+  }
+  FX = ex; FY = ey;
+}
+let FX = 0, FY = 0;
+
+function potential(x, y) {
+  let v = 0;
+  for (const c of charges) {
+    const dx = x - c.x, dy = y - c.y;
+    v += K * c.q / Math.sqrt(dx * dx + dy * dy + SOFT2);
+  }
+  return v;
+}
+
+const radius = c => 11 + 3 * Math.abs(c.q);
+
+// ---------- Tracciamento ----------
+// Ogni traccia: pts (x,y alternati), cl (lunghezza cumulata), ts (tempo in ms), dir, style.
+function speedFor(mag, x, y) {
+  if (x < -20 || y < -20 || x > W + 20 || y > H + 20) return 2500;   // fuori schermo: veloce
+  return Math.min(700, Math.max(55, 25 * mag));
+}
+
+// Linea di campo: la carica di prova si muove sempre lungo E (dir=+1) o contro (dir=-1).
+function traceField(x0, y0, dir, style) {
+  const pts = [x0, y0], cl = [0], ts = [0];
+  let x = x0, y = y0, len = 0, t = 0, sinceStore = 0;
+  let pdx = 0, pdy = 0, hit = null, hitAngle = 0;
+  const xmin = -1.5 * W, xmax = 2.5 * W, ymin = -1.5 * H, ymax = 2.5 * H;
+
+  const dirAt = (px, py) => {
+    field(px, py);
+    const m = Math.hypot(FX, FY);
+    if (m < 1e-7) return null;
+    return [dir * FX / m, dir * FY / m, m];
+  };
+
+  for (let i = 0; i < 9000; i++) {
+    let dmin = Infinity;
+    for (const c of charges) {
+      const d = Math.hypot(x - c.x, y - c.y);
+      if (d < dmin) dmin = d;
+      if (Math.sign(c.q) === -dir && d < radius(c) * 0.55) { hit = c; break; }
+    }
+    if (hit) {
+      hitAngle = Math.atan2(y - hit.y, x - hit.x);
+      const d = Math.hypot(hit.x - x, hit.y - y);
+      len += d; t += d / 300 * 1000;
+      pts.push(hit.x, hit.y); cl.push(len); ts.push(t);
+      break;
+    }
+    const h = Math.min(12, Math.max(0.4, 0.15 * dmin));
+    const k1 = dirAt(x, y);
+    if (!k1) break;
+    if (i > 0 && k1[0] * pdx + k1[1] * pdy < -0.3) break;   // punto neutro: la linea si ferma
+    pdx = k1[0]; pdy = k1[1];
+    const k2 = dirAt(x + h / 2 * k1[0], y + h / 2 * k1[1]); if (!k2) break;
+    const k3 = dirAt(x + h / 2 * k2[0], y + h / 2 * k2[1]); if (!k3) break;
+    const k4 = dirAt(x + h * k3[0], y + h * k3[1]); if (!k4) break;
+    x += h / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+    y += h / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+    len += h; sinceStore += h;
+    t += h / speedFor(k1[2], x, y) * 1000;
+    if (sinceStore >= 2.5) { pts.push(x, y); cl.push(len); ts.push(t); sinceStore = 0; }
+    if (x < xmin || x > xmax || y < ymin || y > ymax) break;
+  }
+  if (sinceStore > 0) { pts.push(x, y); cl.push(len); ts.push(t); }
+  return { pts, cl, ts, dur: t, dir, style, hit, hitAngle, t0: -Infinity, inLayer: false };
+}
+
+// Moto vero: F = qE, la carica ha massa e parte ferma (o con la spinta data trascinando).
+function traceInertia(x0, y0, vx, vy) {
+  const pts = [x0, y0], cl = [0], ts = [0];
+  let x = x0, y = y0, t = 0, len = 0, sinceStore = 0, lastT = 0;
+  const xmin = -1.5 * W, xmax = 2.5 * W, ymin = -1.5 * H, ymax = 2.5 * H;
+  field(x, y);
+  let ax = ALPHA * FX, ay = ALPHA * FY;
+  for (let i = 0; i < 150000 && t < 40; i++) {
+    let dmin = Infinity, hit = false;
+    for (const c of charges) {
+      const d = Math.hypot(x - c.x, y - c.y);
+      if (d < dmin) dmin = d;
+      if (d < radius(c) * 0.55) hit = true;
+    }
+    if (hit) break;
+    const v = Math.hypot(vx, vy), a = Math.hypot(ax, ay);
+    let dt = Math.min(1 / 240, 0.03 * dmin / (v + 1e-6), Math.sqrt(0.03 * dmin / (a + 1e-9)));
+    dt = Math.max(dt, 2e-6);
+    const nx = x + vx * dt + 0.5 * ax * dt * dt;
+    const ny = y + vy * dt + 0.5 * ay * dt * dt;
+    field(nx, ny);
+    const nax = ALPHA * FX, nay = ALPHA * FY;
+    vx += 0.5 * (ax + nax) * dt; vy += 0.5 * (ay + nay) * dt;
+    const step = Math.hypot(nx - x, ny - y);
+    x = nx; y = ny; ax = nax; ay = nay; t += dt; len += step; sinceStore += step;
+    if (sinceStore >= 2 || t - lastT > 1 / 30) { pts.push(x, y); cl.push(len); ts.push(t * 1000); sinceStore = 0; lastT = t; }
+    if (x < xmin || x > xmax || y < ymin || y > ymax) break;
+  }
+  pts.push(x, y); cl.push(len); ts.push(t * 1000);
+  return { pts, cl, ts, dur: t * 1000, dir: 1, style: 'inertia', t0: -Infinity, inLayer: false };
+}
+
+// ---------- Stato ----------
+let probes = [];           // {mode, x, y, vx, vy, line, ghost}
+let fullField = false;
+let fieldLines = [];
+let density = 8;
+let tool = 'pos', magnitude = 1, moto = 'linea';
+let showVectors = false, showPotential = false;
+
+function buildProbe(p) {
+  if (p.mode === 'linea') {
+    p.line = traceField(p.x, p.y, 1, 'probe');
+    p.ghost = null;
+  } else {
+    p.line = traceInertia(p.x, p.y, p.vx, p.vy);
+    p.ghost = traceField(p.x, p.y, 1, 'ghost');
+  }
+}
+
+function circDist(a, b) {
+  const d = Math.abs(a - b) % (2 * Math.PI);
+  return d > Math.PI ? 2 * Math.PI - d : d;
+}
+
+// Una linea tracciata contro E (dalla negativa verso la sua origine) girata nel verso
+// giusto: la carica di prova parte da lontano (o da una positiva) e finisce sulla negativa.
+function reverseLine(l) {
+  const n = l.ts.length, pts = [], cl = [0], ts = [0];
+  for (let i = n - 1; i >= 0; i--) pts.push(l.pts[2 * i], l.pts[2 * i + 1]);
+  let len = 0, t = 0;
+  for (let i = 1; i < n; i++) {
+    const x = pts[2 * i], y = pts[2 * i + 1];
+    const d = Math.hypot(x - pts[2 * i - 2], y - pts[2 * i - 1]);
+    field(x, y);
+    len += d; t += d / speedFor(Math.hypot(FX, FY), x, y) * 1000;
+    cl.push(len); ts.push(t);
+  }
+  return { pts, cl, ts, dur: t, dir: 1, style: l.style, hit: null, hitAngle: 0, t0: -Infinity, inLayer: false };
+}
+
+// Tante cariche di prova attorno alle positive, che vanno nel verso di E. Alle negative
+// mancano le linee che arrivano da lontano: le si cerca all'indietro, ma la carica di
+// prova le percorre comunque in avanti, da fuori schermo verso la negativa.
+function genFullField() {
+  const out = [];
+  const arrivals = new Map();
+  // con tante cariche il disegno si impasta: al massimo ~120 linee in tutto
+  const qp = charges.reduce((s, c) => s + Math.max(0, c.q), 0);
+  const qn = charges.reduce((s, c) => s + Math.max(0, -c.q), 0);
+  const dens = Math.min(density, Math.max(2, 120 / Math.max(qp, qn, 1)));
+  for (const c of charges.filter(c => c.q > 0)) {
+    const n = Math.max(2, Math.round(dens * c.q));
+    const r0 = radius(c) * 0.7;
+    for (let k = 0; k < n; k++) {
+      const a = 2 * Math.PI * k / n;
+      const l = traceField(c.x + r0 * Math.cos(a), c.y + r0 * Math.sin(a), 1, 'field');
+      if (l.hit) {
+        if (!arrivals.has(l.hit.id)) arrivals.set(l.hit.id, []);
+        arrivals.get(l.hit.id).push(l.hitAngle);
+      }
+      out.push(l);
+    }
+  }
+  for (const c of charges.filter(c => c.q < 0)) {
+    const n = Math.max(2, Math.round(dens * -c.q));
+    const arr = arrivals.get(c.id) || [];
+    if (arr.length >= n) continue;
+    const cand = [];
+    for (let k = 0; k < n; k++) cand.push(2 * Math.PI * k / n + Math.PI / n);
+    for (const a of arr) {
+      let best = -1, bd = Infinity;
+      cand.forEach((b, i) => { const d = circDist(a, b); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) cand.splice(best, 1);
+    }
+    const r0 = radius(c) * 0.7;
+    for (const a of cand) out.push(reverseLine(traceField(c.x + r0 * Math.cos(a), c.y + r0 * Math.sin(a), -1, 'field')));
+  }
+  return out;
+}
+
+function allLines() {
+  const L = fieldLines.slice();
+  for (const p of probes) { if (p.ghost) L.push(p.ghost); L.push(p.line); }
+  return L;
+}
+
+// Ricalcola tutto da capo (le cariche fisse sono cambiate): niente animazioni a metà.
+function rebuild() {
+  for (const p of probes) buildProbe(p);
+  fieldLines = fullField ? genFullField() : [];
+  renderBg();
+  renderLineLayer();
+  dirty = true;
+}
+
+// ---------- Canvas ----------
+const cvs = document.getElementById('scena');
+const ctx = cvs.getContext('2d');
+const bgLayer = document.createElement('canvas');
+const bgx = bgLayer.getContext('2d');
+const lineLayer = document.createElement('canvas');
+const lx = lineLayer.getContext('2d');
+const potCvs = document.createElement('canvas');
+const potx = potCvs.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let dirty = true, needRebuild = false;
+
+function resize() {
+  const oW = W, oH = H;
+  W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2);
+  for (const c of [cvs, bgLayer, lineLayer]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
+  for (const g of [ctx, bgx, lx]) g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (oW && oH) {               // le cariche restano nello stesso posto rispetto allo schermo
+    const sx = W / oW, sy = H / oH;
+    for (const c of charges) { c.x *= sx; c.y *= sy; }
+    for (const p of probes) { p.x *= sx; p.y *= sy; }
+  }
+  rebuild();
+}
+
+const COL = {
+  field: 'rgba(214, 226, 255, 0.78)',
+  probe: '#ffd166',
+  inertia: '#ff9f43',
+  ghost: 'rgba(255, 209, 102, 0.45)',
+};
+
+function renderBg() {
+  bgx.clearRect(0, 0, W, H);
+  if (showPotential && charges.length) renderPotential();
+  if (showVectors && charges.length) renderVectors();
+}
+
+function renderPotential() {
+  const S = 3;
+  const w = Math.ceil(W / S), h = Math.ceil(H / S);
+  if (potCvs.width !== w || potCvs.height !== h) { potCvs.width = w; potCvs.height = h; }
+  const img = potx.createImageData(w, h);
+  const d = img.data;
+  const V0 = K / 160;
+  const BANDS = 7;
+  const band = new Int16Array(w * h);
+  const us = new Float32Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const u = Math.tanh(potential((i + 0.5) * S, (j + 0.5) * S) / V0);
+    us[j * w + i] = u;
+    band[j * w + i] = Math.floor(u * BANDS + 0.5);
+  }
+  const bg = [10, 15, 30], pc = [255, 93, 93], nc = [79, 157, 255];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const k = j * w + i, u = us[k], col = u >= 0 ? pc : nc, s = Math.abs(u) * 0.32;
+    let r = bg[0] + (col[0] - bg[0]) * s, g = bg[1] + (col[1] - bg[1]) * s, b = bg[2] + (col[2] - bg[2]) * s;
+    const b0 = band[k];
+    const edge = (i + 1 < w && band[k + 1] !== b0) || (j + 1 < h && band[k + w] !== b0);
+    if (edge) { r += 55; g += 55; b += 60; }
+    d[k * 4] = r; d[k * 4 + 1] = g; d[k * 4 + 2] = b; d[k * 4 + 3] = 255;
+  }
+  potx.putImageData(img, 0, 0);
+  bgx.imageSmoothingEnabled = true;
+  bgx.drawImage(potCvs, 0, 0, w * S, h * S);
+}
+
+function renderVectors() {
+  const step = 34;
+  bgx.lineCap = 'round';
+  for (let y = step / 2; y < H; y += step) for (let x = step / 2; x < W; x += step) {
+    let near = false;
+    for (const c of charges) if (Math.hypot(x - c.x, y - c.y) < radius(c) + 10) { near = true; break; }
+    if (near) continue;
+    field(x, y);
+    const m = Math.hypot(FX, FY);
+    if (m < 1e-6) continue;
+    const ux = FX / m, uy = FY / m, L = 11;
+    const a = Math.min(0.9, Math.max(0.12, 0.3 + 0.28 * Math.log10(m / 2)));
+    const x1 = x - ux * L / 2, y1 = y - uy * L / 2, x2 = x + ux * L / 2, y2 = y + uy * L / 2;
+    bgx.strokeStyle = `rgba(170, 190, 235, ${a})`;
+    bgx.lineWidth = 1.5;
+    bgx.beginPath(); bgx.moveTo(x1, y1); bgx.lineTo(x2, y2);
+    bgx.moveTo(x2 - ux * 4 - uy * 3, y2 - uy * 4 + ux * 3); bgx.lineTo(x2, y2);
+    bgx.lineTo(x2 - ux * 4 + uy * 3, y2 - uy * 4 - ux * 3);
+    bgx.stroke();
+  }
+}
+
+function renderLineLayer() {
+  lx.clearRect(0, 0, W, H);
+  const now = performance.now();
+  for (const l of allLines()) {
+    if (now - l.t0 >= l.dur) { drawLine(lx, l, Infinity); l.inLayer = true; }
+    else l.inLayer = false;
+  }
+}
+
+// Indice dell'ultimo punto con chiave <= v (ricerca binaria).
+function idxAt(arr, v) {
+  let lo = 0, hi = arr.length - 1;
+  if (v >= arr[hi]) return hi;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (arr[mid] <= v) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+
+// Disegna la traccia fino al tempo trascorso `el`; restituisce la posizione della testa.
+function drawLine(g, l, el) {
+  const { pts, ts, cl } = l;
+  const n = ts.length;
+  if (n < 2) return null;
+  let i = idxAt(ts, el), hx, hy, hl;
+  if (i >= n - 1) { i = n - 1; hx = pts[2 * i]; hy = pts[2 * i + 1]; hl = cl[i]; }
+  else {
+    const f = (el - ts[i]) / (ts[i + 1] - ts[i] || 1);
+    hx = pts[2 * i] + (pts[2 * i + 2] - pts[2 * i]) * f;
+    hy = pts[2 * i + 1] + (pts[2 * i + 3] - pts[2 * i + 1]) * f;
+    hl = cl[i] + (cl[i + 1] - cl[i]) * f;
+  }
+  const col = COL[l.style];
+  g.strokeStyle = col;
+  g.lineWidth = l.style === 'field' ? 1.4 : l.style === 'ghost' ? 1.3 : 2.2;
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.setLineDash(l.style === 'ghost' ? [5, 6] : []);
+  g.beginPath();
+  g.moveTo(pts[0], pts[1]);
+  for (let k = 1; k <= i; k++) g.lineTo(pts[2 * k], pts[2 * k + 1]);
+  g.lineTo(hx, hy);
+  g.stroke();
+  g.setLineDash([]);
+
+  if (l.style !== 'inertia') {   // frecce lungo la linea, sempre nel verso di E
+    const gap = l.style === 'field' ? 95 : 80;
+    g.fillStyle = col;
+    for (let s = gap * 0.55; s < hl - 6; s += gap) {
+      const j = Math.min(idxAt(cl, s), n - 2);
+      let dx = pts[2 * j + 2] - pts[2 * j], dy = pts[2 * j + 3] - pts[2 * j + 1];
+      const m = Math.hypot(dx, dy); if (m < 1e-6) continue;
+      dx = dx / m * l.dir; dy = dy / m * l.dir;
+      const f = (s - cl[j]) / (cl[j + 1] - cl[j] || 1);
+      const ax = pts[2 * j] + (pts[2 * j + 2] - pts[2 * j]) * f;
+      const ay = pts[2 * j + 1] + (pts[2 * j + 3] - pts[2 * j + 1]) * f;
+      const A = l.style === 'field' ? 5 : 6;
+      g.beginPath();
+      g.moveTo(ax + dx * A, ay + dy * A);
+      g.lineTo(ax - dx * A - dy * A * 0.8, ay - dy * A + dx * A * 0.8);
+      g.lineTo(ax - dx * A * 0.4, ay - dy * A * 0.4);
+      g.lineTo(ax - dx * A + dy * A * 0.8, ay - dy * A - dx * A * 0.8);
+      g.closePath(); g.fill();
+    }
+  }
+  return [hx, hy];
+}
+
+function drawCharge(c) {
+  const r = radius(c), pos = c.q > 0;
+  const g = ctx.createRadialGradient(c.x - r * 0.35, c.y - r * 0.35, r * 0.1, c.x, c.y, r);
+  if (pos) { g.addColorStop(0, '#ffb0b0'); g.addColorStop(0.55, '#ff5d5d'); g.addColorStop(1, '#a3262b'); }
+  else { g.addColorStop(0, '#b5d6ff'); g.addColorStop(0.55, '#4f9dff'); g.addColorStop(1, '#1d4a94'); }
+  ctx.save();
+  ctx.shadowColor = pos ? 'rgba(255,93,93,.6)' : 'rgba(79,157,255,.6)';
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 2 * Math.PI); ctx.fill();
+  ctx.restore();
+  if (c === dragCharge || c === selCharge) {
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(c.x, c.y, r + 4, 0, 2 * Math.PI); ctx.stroke();
+  }
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const m = Math.abs(c.q);
+  if (m === 1) {
+    ctx.font = `700 ${Math.round(r * 1.25)}px system-ui, sans-serif`;
+    ctx.fillText(pos ? '+' : '−', c.x, c.y + 1);
+  } else {
+    ctx.font = `700 ${Math.round(r * 0.85)}px system-ui, sans-serif`;
+    ctx.fillText((pos ? '+' : '−') + m, c.x, c.y + 1);
+  }
+}
+
+function drawHead(x, y, color) {
+  ctx.save();
+  ctx.shadowColor = color; ctx.shadowBlur = 12;
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 2 * Math.PI); ctx.fill();
+  ctx.restore();
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (needRebuild) { needRebuild = false; rebuild(); }
+  const lines = allLines();
+  const anim = lines.filter(l => !l.inLayer);
+  if (!dirty && !anim.length && !aim) return;
+  dirty = false;
+
+  for (const l of anim) if (now - l.t0 >= l.dur) { drawLine(lx, l, Infinity); l.inLayer = true; }
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(bgLayer, 0, 0, W, H);
+  ctx.drawImage(lineLayer, 0, 0, W, H);
+  for (const l of anim) {
+    if (l.inLayer) continue;
+    const head = drawLine(ctx, l, now - l.t0);
+    if (head && l.style !== 'ghost') drawHead(head[0], head[1], l.style === 'inertia' ? COL.inertia : COL.probe);
+  }
+  for (const c of charges) drawCharge(c);
+
+  // cariche di prova ferme (traccia di un solo punto: niente campo)
+  for (const p of probes) if (p.line.ts.length < 2) drawHead(p.x, p.y, COL.probe);
+
+  if (aim) {
+    drawHead(aim.x0, aim.y0, COL.inertia);
+    const dx = aim.x - aim.x0, dy = aim.y - aim.y0, m = Math.hypot(dx, dy);
+    if (m > 6) {
+      ctx.strokeStyle = COL.inertia; ctx.fillStyle = COL.inertia; ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(aim.x0, aim.y0); ctx.lineTo(aim.x, aim.y); ctx.stroke();
+      ctx.setLineDash([]);
+      const ux = dx / m, uy = dy / m;
+      ctx.beginPath();
+      ctx.moveTo(aim.x + ux * 4, aim.y + uy * 4);
+      ctx.lineTo(aim.x - ux * 8 - uy * 6, aim.y - uy * 8 + ux * 6);
+      ctx.lineTo(aim.x - ux * 8 + uy * 6, aim.y - uy * 8 - ux * 6);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+}
+
+// ---------- Interazione ----------
+let dragCharge = null, dragOff = null, dragStart = null, dragNew = false, aim = null, pointerId = null;
+let selCharge = null;
+
+function pickCharge(x, y) {
+  let best = null, bd = Infinity;
+  for (const c of charges) {
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < radius(c) + 10 && d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+
+function pickProbe(x, y) {
+  let best = -1, bd = 14;
+  probes.forEach((p, i) => {
+    const pts = p.line.pts;
+    for (let k = 0; k < pts.length; k += 2) {
+      const d = Math.hypot(pts[k] - x, pts[k + 1] - y);
+      if (d < bd) { bd = d; best = i; }
+    }
+  });
+  return best;
+}
+
+function launchProbe(p) {
+  buildProbe(p);
+  const now = performance.now();
+  p.line.t0 = now; p.line.inLayer = false;
+  if (p.ghost) { p.ghost.t0 = -Infinity; p.ghost.inLayer = false; }
+  probes.push(p);
+  if (!charges.length) toast('Non c\'è campo: piazza prima qualche carica fissa');
+  dirty = true;
+}
+
+cvs.addEventListener('pointerdown', e => {
+  if (pointerId !== null) return;
+  closeSheet();
+  closeEditor();
+  const x = e.clientX, y = e.clientY;
+  const c = pickCharge(x, y);
+  dragStart = [x, y]; dragNew = false;
+
+  if (tool === 'gomma') {
+    if (c) { charges = charges.filter(k => k !== c); needRebuild = true; return; }
+    const i = pickProbe(x, y);
+    if (i >= 0) { probes.splice(i, 1); renderLineLayer(); dirty = true; }
+    return;
+  }
+
+  pointerId = e.pointerId;
+  try { cvs.setPointerCapture(e.pointerId); } catch (_) { /* puntatore già rilasciato */ }
+
+  if (c) { dragCharge = c; dragOff = [c.x - x, c.y - y]; dirty = true; return; }
+
+  if (tool === 'pos' || tool === 'neg') {
+    const nc = { id: nextId++, x, y, q: (tool === 'pos' ? 1 : -1) * magnitude };
+    charges.push(nc);
+    dragCharge = nc; dragOff = [0, 0]; dragNew = true;
+    needRebuild = true;
+    return;
+  }
+
+  if (tool === 'prova') {
+    if (moto === 'linea') { launchProbe({ mode: 'linea', x, y, vx: 0, vy: 0 }); pointerId = null; }
+    else { aim = { x0: x, y0: y, x, y }; dirty = true; }
+  }
+});
+
+cvs.addEventListener('pointermove', e => {
+  if (e.pointerId !== pointerId) return;
+  if (dragCharge) {
+    dragCharge.x = e.clientX + dragOff[0];
+    dragCharge.y = e.clientY + dragOff[1];
+    needRebuild = true;
+  } else if (aim) {
+    aim.x = e.clientX; aim.y = e.clientY; dirty = true;
+  }
+});
+
+function endPointer(e) {
+  if (e.pointerId !== pointerId) return;
+  pointerId = null;
+  if (dragCharge) {
+    // un tocco senza spostamento su una carica già piazzata apre il suo editor
+    const still = Math.hypot(e.clientX - dragStart[0], e.clientY - dragStart[1]) < 6;
+    if (still && !dragNew) openEditor(dragCharge);
+    dragCharge = null; dirty = true;
+  }
+  if (aim) {
+    let vx = (aim.x - aim.x0) * 2, vy = (aim.y - aim.y0) * 2;
+    if (Math.hypot(vx, vy) < 12) { vx = 0; vy = 0; }
+    launchProbe({ mode: 'inerzia', x: aim.x0, y: aim.y0, vx, vy });
+    aim = null;
+  }
+}
+cvs.addEventListener('pointerup', endPointer);
+cvs.addEventListener('pointercancel', endPointer);
+
+// ---------- Interfaccia ----------
+const $ = s => document.querySelector(s);
+const hintEl = $('#hint');
+
+// ---------- Editor della carica: segno e valore da −3 a +3 ----------
+const editor = $('#editor');
+const VALORI = [-3, -2, -1, 1, 2, 3];
+editor.innerHTML =
+  VALORI.map(v => `<button data-q="${v}" class="${v < 0 ? 'n' : 'p'}">${v > 0 ? '+' + v : '−' + -v}</button>`)
+    .join('').replace('<button data-q="1"', '<span class="sep"></span><button data-q="1"') +
+  '<span class="sep"></span><button id="edDel" aria-label="Elimina carica">✕</button>';
+
+function placeEditor() {
+  const c = selCharge, r = radius(c);
+  const w = editor.offsetWidth, h = editor.offsetHeight;
+  const left = Math.min(Math.max(8, c.x - w / 2), W - w - 8);
+  let top = c.y - r - 12 - h;
+  if (top < 56) top = c.y + r + 12;
+  editor.style.left = left + 'px';
+  editor.style.top = top + 'px';
+}
+function openEditor(c) {
+  selCharge = c;
+  for (const b of editor.querySelectorAll('[data-q]')) b.classList.toggle('on', +b.dataset.q === c.q);
+  editor.hidden = false;
+  placeEditor();
+  dirty = true;
+}
+function closeEditor() {
+  if (!selCharge) return;
+  selCharge = null; editor.hidden = true; dirty = true;
+}
+editor.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || !selCharge) return;
+  if (b.id === 'edDel') {
+    charges = charges.filter(k => k !== selCharge);
+    closeEditor(); needRebuild = true;
+    return;
+  }
+  selCharge.q = +b.dataset.q;
+  openEditor(selCharge);
+  needRebuild = true;
+});
+
+function updateHint() {
+  const t = {
+    pos: 'Tocca per piazzare una carica positiva · tocca una carica per cambiarla',
+    neg: 'Tocca per piazzare una carica negativa · tocca una carica per cambiarla',
+    prova: moto === 'linea'
+      ? 'Tocca un punto: la carica di prova parte e disegna la linea di campo'
+      : 'Tocca per lasciarla ferma, o trascina per lanciarla',
+    gomma: 'Tocca una carica o una traiettoria per cancellarla',
+  };
+  hintEl.textContent = t[tool];
+  $('#notaMoto').textContent = moto === 'linea'
+    ? 'La carica segue sempre la direzione di E: la sua traccia è proprio la linea di campo.'
+    : 'La carica ha massa e accelera secondo F = qE: la traiettoria (arancione) si stacca dalla linea di campo (tratteggiata) dove le linee curvano.';
+}
+
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 2600);
+}
+
+$('#tools').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  tool = b.dataset.tool;
+  for (const x of $('#tools').children) x.classList.toggle('on', x === b);
+  updateHint();
+});
+
+$('#mag').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  magnitude = +b.dataset.m;
+  for (const x of $('#mag').querySelectorAll('button')) x.classList.toggle('on', x === b);
+  if (tool !== 'pos' && tool !== 'neg') {
+    tool = 'pos';
+    for (const x of $('#tools').children) x.classList.toggle('on', x.dataset.tool === 'pos');
+    updateHint();
+  }
+});
+
+function startFullField() {
+  if (!charges.length) { toast('Piazza prima qualche carica fissa'); return; }
+  fullField = true;
+  fieldLines = genFullField();
+  const now = performance.now();
+  for (const l of fieldLines) { l.t0 = now; l.inLayer = false; }
+  renderLineLayer();
+  dirty = true;
+}
+
+$('#btnCampo').addEventListener('click', () => { closeSheet(); startFullField(); });
+$('#btnPulisci').addEventListener('click', () => {
+  closeSheet();
+  probes = []; fullField = false; fieldLines = [];
+  renderLineLayer(); dirty = true;
+});
+$('#btnAltro').addEventListener('click', () => {
+  const s = $('#sheet'), ui = $('#ui');
+  s.style.bottom = (innerHeight - ui.getBoundingClientRect().top + 8) + 'px';
+  s.style.maxHeight = (ui.getBoundingClientRect().top - 70) + 'px';
+  s.hidden = !s.hidden;
+});
+function closeSheet() { $('#sheet').hidden = true; }
+
+$('#moto').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  moto = b.dataset.moto;
+  for (const x of $('#moto').children) x.classList.toggle('on', x === b);
+  tool = 'prova';
+  for (const x of $('#tools').children) x.classList.toggle('on', x.dataset.tool === 'prova');
+  updateHint();
+});
+
+$('#chkVettori').addEventListener('change', e => { showVectors = e.target.checked; renderBg(); dirty = true; });
+$('#chkPot').addEventListener('change', e => { showPotential = e.target.checked; renderBg(); dirty = true; });
+$('#densita').addEventListener('input', e => {
+  density = +e.target.value;
+  $('#densitaVal').textContent = density;
+  if (fullField) needRebuild = true;
+});
+
+$('#btnTutto').addEventListener('click', () => {
+  closeEditor();
+  charges = []; probes = []; fullField = false; fieldLines = [];
+  closeSheet(); needRebuild = true;
+});
+
+function esempio(nome) {
+  const cx = W / 2, cy = H * 0.45, s = Math.min(W, H * 0.8) / 5;
+  const C = (x, y, q) => ({ id: nextId++, x: cx + x * s, y: cy + y * s, q });
+  const set = {
+    dipolo: [C(-1, 0, 1), C(1, 0, -1)],
+    duepos: [C(-1, 0, 1), C(1, 0, 1)],
+    asim: [C(-0.9, 0, 2), C(0.9, 0, -1)],
+    quadrupolo: [C(-0.8, -0.8, 1), C(0.8, -0.8, -1), C(-0.8, 0.8, -1), C(0.8, 0.8, 1)],
+    condensatore: [],
+  }[nome];
+  if (nome === 'condensatore') {
+    for (let i = 0; i < 15; i++) {
+      const x = -1.75 + i * 0.25;
+      set.push(C(x, -0.4, 1), C(x, 0.4, -1));
+    }
+  }
+  closeEditor();
+  charges = set; probes = [];
+  closeSheet();
+  rebuild();
+  startFullField();
+}
+$('#esempi').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (b) esempio(b.dataset.es);
+});
+
+$('#versione').textContent = 'v' + VERSIONE;
+addEventListener('resize', () => { closeEditor(); resize(); });
+resize();
+{ // si parte da un dipolo, senza linee
+  const cx = W / 2, cy = H * 0.45, s = Math.min(W, H * 0.8) / 5;
+  charges = [{ id: nextId++, x: cx - s, y: cy, q: 1 }, { id: nextId++, x: cx + s, y: cy, q: -1 }];
+  rebuild();
+}
+updateHint();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
